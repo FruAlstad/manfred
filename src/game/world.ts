@@ -11,7 +11,7 @@ import {
   Scene,
 } from 'three'
 import { CELL, Maze } from './maze'
-import { makeCarpet, makeCeiling, makeWallpaper } from './textures'
+import { makeBloodDecal, makeCarpet, makeCeiling, makeWallpaper } from './textures'
 
 const HEIGHT = 3.28
 const THICK = 0.16
@@ -33,12 +33,25 @@ export class World {
   update(time: number) {
     for (const fixture of this.lights) {
       if (time > fixture.next) {
-        const dead = Math.random() < 0.08
-        const intensity = dead ? 0 : 1.15 + Math.random() * 0.25
-        fixture.light.intensity = intensity
+        const roll = Math.random()
         const material = fixture.mesh.material as MeshStandardMaterial
-        material.emissiveIntensity = dead ? 0.05 : 1.6
-        fixture.next = time + (dead ? 0.08 + Math.random() * 0.25 : 0.4 + Math.random() * 2.8)
+
+        if (roll < 0.22) {
+          // hard blink out
+          fixture.light.intensity = 0
+          material.emissiveIntensity = 0.04
+          fixture.next = time + 0.05 + Math.random() * 0.12
+        } else if (roll < 0.45) {
+          // stutter flicker
+          fixture.light.intensity = 0.25 + Math.random() * 0.7
+          material.emissiveIntensity = 0.25 + Math.random() * 0.6
+          fixture.next = time + 0.03 + Math.random() * 0.08
+        } else {
+          // steady buzz
+          fixture.light.intensity = 1.9 + Math.random() * 0.4
+          material.emissiveIntensity = 1.5 + Math.random() * 0.4
+          fixture.next = time + 0.6 + Math.random() * 2.4
+        }
       }
     }
   }
@@ -76,6 +89,30 @@ export class World {
     const wallGeo = new BoxGeometry(CELL, HEIGHT, THICK)
     const wallGeoZ = new BoxGeometry(THICK, HEIGHT, CELL)
     const lightGeo = new BoxGeometry(2.2, 0.06, 0.42)
+    const bloodMap = makeBloodDecal()
+    const bloodMat = new MeshStandardMaterial({
+      map: bloodMap,
+      transparent: true,
+      depthWrite: false,
+      roughness: 0.95,
+      metalness: 0,
+      color: '#ffffff',
+    })
+    const bloodGeo = new PlaneGeometry(1, 1.4)
+
+    const addBlood = (
+      x: number,
+      y: number,
+      z: number,
+      rotY: number,
+      scale = 1,
+    ) => {
+      const stain = new Mesh(bloodGeo, bloodMat)
+      stain.position.set(x, y, z)
+      stain.rotation.y = rotY
+      stain.scale.setScalar(0.7 + Math.random() * 1.4 * scale)
+      this.root.add(stain)
+    }
 
     for (let z = 0; z < this.maze.height; z += 1) {
       for (let x = 0; x < this.maze.width; x += 1) {
@@ -97,21 +134,48 @@ export class World {
           const wall = new Mesh(wallGeo, wallpaper)
           wall.position.set(cx, HEIGHT / 2, z * CELL)
           this.root.add(wall)
+          if (Math.random() < 0.28) {
+            addBlood(cx + (Math.random() - 0.5) * 2.2, 0.9 + Math.random() * 1.5, z * CELL + 0.09, 0)
+          }
         }
         if (!this.maze.isOpen(x, z + 1)) {
           const wall = new Mesh(wallGeo, wallpaper)
           wall.position.set(cx, HEIGHT / 2, (z + 1) * CELL)
           this.root.add(wall)
+          if (Math.random() < 0.28) {
+            addBlood(
+              cx + (Math.random() - 0.5) * 2.2,
+              0.9 + Math.random() * 1.5,
+              (z + 1) * CELL - 0.09,
+              Math.PI,
+            )
+          }
         }
         if (!this.maze.isOpen(x - 1, z)) {
           const wall = new Mesh(wallGeoZ, wallpaper)
           wall.position.set(x * CELL, HEIGHT / 2, cz)
           this.root.add(wall)
+          if (Math.random() < 0.28) {
+            addBlood(
+              x * CELL + 0.09,
+              0.9 + Math.random() * 1.5,
+              cz + (Math.random() - 0.5) * 2.2,
+              Math.PI / 2,
+            )
+          }
         }
         if (!this.maze.isOpen(x + 1, z)) {
           const wall = new Mesh(wallGeoZ, wallpaper)
           wall.position.set((x + 1) * CELL, HEIGHT / 2, cz)
           this.root.add(wall)
+          if (Math.random() < 0.28) {
+            addBlood(
+              (x + 1) * CELL - 0.09,
+              0.9 + Math.random() * 1.5,
+              cz + (Math.random() - 0.5) * 2.2,
+              -Math.PI / 2,
+            )
+          }
         }
 
         if ((x + z) % 2 === 0) {

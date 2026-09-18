@@ -3,8 +3,8 @@ import { CELL, Maze } from './maze'
 
 const EYE = 1.64
 const RADIUS = 0.32
-const WALK = 2.35
-const SPRINT = 4.55
+const WALK = 7.2
+const SPRINT = 14.4
 
 export class Player {
   readonly position = new Vector3()

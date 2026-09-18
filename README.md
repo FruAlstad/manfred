@@ -17,7 +17,7 @@ Then open the local URL Vite prints (usually `http://localhost:5174`).
 
 - **WASD** move
 - **Mouse** look
-- **Shift** run
+- **F** run (Shift also works)
 - **Esc** pause / release mouse
 
 ## Goal

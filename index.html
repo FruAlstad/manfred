@@ -16,12 +16,29 @@
       <div id="stamina" hidden><i></i></div>
       <p id="hint" hidden>find the exit. do not let it find you.</p>
 
+      <div id="jumpscare" hidden aria-hidden="true">
+        <div class="jumpscare-flash"></div>
+        <div class="jumpscare-blood"></div>
+        <div class="jumpscare-face">
+          <span class="jumpscare-eye left"></span>
+          <span class="jumpscare-eye right"></span>
+          <span class="jumpscare-nose"></span>
+          <span class="jumpscare-mouth">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </span>
+          <span class="jumpscare-drip a"></span>
+          <span class="jumpscare-drip b"></span>
+          <span class="jumpscare-drip c"></span>
+        </div>
+        <p class="jumpscare-text">IT SEES YOU</p>
+      </div>
+
       <div id="overlay" class="overlay">
         <p class="whisper">if you're not careful and you noclip out of reality…</p>
         <h1>MANFRED</h1>
         <p class="sub">you will end up in the backrooms</p>
         <button id="start-btn" type="button">NO-CLIP</button>
-        <p class="controls">WASD move · mouse look · shift run · esc pause</p>
+        <p class="controls">WASD move · mouse look · F run · esc pause</p>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

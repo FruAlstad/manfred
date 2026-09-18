@@ -39,7 +39,7 @@ function addNoise(
 }
 
 export function makeWallpaper() {
-  const texture = noiseCanvas(256, (ctx, size) => {
+  const texture = noiseCanvas(512, (ctx, size) => {
     ctx.fillStyle = '#d6c46a'
     ctx.fillRect(0, 0, size, size)
     ctx.strokeStyle = 'rgba(150, 132, 48, 0.18)'
@@ -57,10 +57,59 @@ export function makeWallpaper() {
       ctx.lineTo(x, size)
       ctx.stroke()
     }
+    paintBlood(ctx, size, 14)
     addNoise(ctx, size, 22)
   })
   texture.repeat.set(2.2, 1.4)
   return texture
+}
+
+export function makeBloodDecal() {
+  return noiseCanvas(256, (ctx, size) => {
+    ctx.clearRect(0, 0, size, size)
+    paintBlood(ctx, size, 8)
+    for (let i = 0; i < 18; i += 1) {
+      const x = Math.random() * size
+      let y = Math.random() * size * 0.45
+      ctx.strokeStyle = `rgba(${90 + Math.random() * 50}, 8, 8, ${0.35 + Math.random() * 0.45})`
+      ctx.lineWidth = 1 + Math.random() * 3
+      ctx.beginPath()
+      ctx.moveTo(x, y)
+      while (y < size) {
+        y += 6 + Math.random() * 14
+        ctx.lineTo(x + (Math.random() - 0.5) * 10, y)
+      }
+      ctx.stroke()
+    }
+  })
+}
+
+function paintBlood(
+  ctx: CanvasRenderingContext2D,
+  size: number,
+  blobs: number,
+) {
+  for (let i = 0; i < blobs; i += 1) {
+    const x = Math.random() * size
+    const y = Math.random() * size
+    const r = 10 + Math.random() * 48
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, r)
+    gradient.addColorStop(0, `rgba(${110 + Math.random() * 40}, 10, 10, 0.72)`)
+    gradient.addColorStop(0.55, `rgba(70, 6, 6, 0.42)`)
+    gradient.addColorStop(1, 'rgba(40, 0, 0, 0)')
+    ctx.fillStyle = gradient
+    ctx.beginPath()
+    ctx.ellipse(
+      x,
+      y,
+      r,
+      r * (0.55 + Math.random() * 0.7),
+      Math.random() * Math.PI,
+      0,
+      Math.PI * 2,
+    )
+    ctx.fill()
+  }
 }
 
 export function makeCarpet() {

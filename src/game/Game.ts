@@ -13,7 +13,9 @@ import { Maze } from './maze'
 import { Player } from './player'
 import { World } from './world'
 
-type Mode = 'title' | 'playing' | 'dead' | 'escaped'
+type Mode = 'title' | 'playing' | 'jumpscare' | 'dead' | 'escaped'
+
+const MONSTER_COUNT = 10
 
 export class Game {
   private renderer: WebGLRenderer
@@ -22,18 +24,20 @@ export class Game {
   private maze: Maze
   private world: World
   private player: Player
-  private entity: Entity
+  private entities: Entity[] = []
   private audio = new GameAudio()
   private keys = new Set<string>()
   private mode: Mode = 'title'
   private last = performance.now()
   private overlay: HTMLElement
+  private jumpscare: HTMLElement
   private staminaBar: HTMLElement
   private hint: HTMLElement
   private crosshair: HTMLElement
 
   constructor(canvas: HTMLCanvasElement) {
     this.overlay = document.querySelector('#overlay') as HTMLElement
+    this.jumpscare = document.querySelector('#jumpscare') as HTMLElement
     this.staminaBar = document.querySelector('#stamina i') as HTMLElement
     this.hint = document.querySelector('#hint') as HTMLElement
     this.crosshair = document.querySelector('#crosshair') as HTMLElement
@@ -48,8 +52,13 @@ export class Game {
     this.world = new World(this.maze)
     this.world.scene.fog = new FogExp2(0xd4c46a, 0.038)
     this.player = new Player(this.maze)
-    this.entity = new Entity(this.maze)
-    this.world.scene.add(this.entity.group)
+
+    const spawns = this.maze.spawnCells(MONSTER_COUNT, 7)
+    for (const spawn of spawns) {
+      const entity = new Entity(this.maze, spawn)
+      this.entities.push(entity)
+      this.world.scene.add(entity.group)
+    }
 
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.world.scene, this.camera))
@@ -110,8 +119,28 @@ export class Game {
     return {
       x,
       z,
-      sprint: this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'),
+      sprint:
+        this.keys.has('KeyF') ||
+        this.keys.has('ShiftLeft') ||
+        this.keys.has('ShiftRight'),
     }
+  }
+
+  private triggerJumpscare() {
+    this.mode = 'jumpscare'
+    document.exitPointerLock()
+    this.crosshair.hidden = true
+    void this.audio.ensureRunning().then(() => this.audio.jumpscare())
+    this.jumpscare.hidden = false
+    this.jumpscare.classList.remove('hit')
+    void this.jumpscare.offsetWidth
+    this.jumpscare.classList.add('hit')
+
+    setTimeout(() => {
+      this.jumpscare.hidden = true
+      this.jumpscare.classList.remove('hit')
+      this.end('dead')
+    }, 2100)
   }
 
   private end(kind: 'dead' | 'escaped') {
@@ -121,10 +150,10 @@ export class Game {
     this.overlay.classList.add('end')
     this.crosshair.hidden = true
     if (kind === 'dead') {
-      this.audio.sting()
+      void this.audio.ensureRunning().then(() => this.audio.deathCry())
       this.overlay.innerHTML = `
         <h1>NOCLIP FAILED</h1>
-        <p class="sub">manfred is part of the wallpaper now</p>
+        <p class="sub">they found manfred in the wallpaper</p>
         <button type="button" id="again">TRY AGAIN</button>
       `
     } else {
@@ -144,20 +173,33 @@ export class Game {
 
     if (this.mode === 'playing') {
       this.player.update(dt, this.input(), this.maze)
-      const caught = this.entity.update(dt, this.player)
+      let anyHunting = false
+      let caught = false
+      for (const entity of this.entities) {
+        if (entity.update(dt, this.player)) caught = true
+        if (entity.hunting) anyHunting = true
+      }
       this.world.update(now / 1000)
-      this.audio.setHunting(this.entity.hunting)
+      this.audio.setHunting(anyHunting)
       this.audio.footstep(this.player.speed())
       this.staminaBar.style.transform = `scaleX(${this.player.stamina})`
 
       const exit = this.maze.cellCenter(this.maze.exit)
-      const toExit = Math.hypot(this.player.position.x - exit.x, this.player.position.z - exit.z)
+      const toExit = Math.hypot(
+        this.player.position.x - exit.x,
+        this.player.position.z - exit.z,
+      )
       if (toExit < 1.1) this.end('escaped')
-      if (caught) this.end('dead')
+      else if (caught) this.triggerJumpscare()
+    } else if (this.mode === 'jumpscare') {
+      this.camera.position.copy(this.player.position)
+      this.camera.position.y += Math.sin(now * 0.08) * 0.08
     }
 
-    this.camera.position.copy(this.player.position)
-    this.camera.quaternion.setFromEuler(this.player.euler())
+    if (this.mode !== 'jumpscare') {
+      this.camera.position.copy(this.player.position)
+      this.camera.quaternion.setFromEuler(this.player.euler())
+    }
     this.composer.render()
     requestAnimationFrame(this.loop)
   }

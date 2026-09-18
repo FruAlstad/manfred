@@ -200,6 +200,39 @@ export class Maze {
 
     return { x: best.x, z: best.z }
   }
+
+  spawnCells(count: number, minDistFromStart = 8): Cell[] {
+    const open: Cell[] = []
+    for (let z = 1; z < this.height - 1; z += 1) {
+      for (let x = 1; x < this.width - 1; x += 1) {
+        if (!this.open[z][x]) continue
+        const dist =
+          Math.abs(x - this.start.x) + Math.abs(z - this.start.z)
+        if (dist < minDistFromStart) continue
+        open.push({ x, z })
+      }
+    }
+
+    for (let i = open.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[open[i], open[j]] = [open[j], open[i]]
+    }
+
+    const picked: Cell[] = []
+    for (const cell of open) {
+      if (picked.length >= count) break
+      const crowded = picked.some(
+        (other) => Math.abs(other.x - cell.x) + Math.abs(other.z - cell.z) < 3,
+      )
+      if (!crowded) picked.push(cell)
+    }
+
+    while (picked.length < count && open.length > 0) {
+      picked.push(open[picked.length % open.length])
+    }
+
+    return picked
+  }
 }
 
 function mulberry32(seed: number) {
