@@ -11,10 +11,12 @@ import {
   Scene,
 } from 'three'
 import { CELL, Maze } from './maze'
-import { makeBloodDecal, makeCarpet, makeCeiling, makeWallpaper } from './textures'
+import { makeBloodPuddle, makeCarpet, makeCeiling, makeWallpaper } from './textures'
 
 const HEIGHT = 3.28
 const THICK = 0.16
+const MAX_LIGHTS = 8
+const MAX_PUDDLES = 18
 
 export class World {
   readonly scene = new Scene()
@@ -24,34 +26,26 @@ export class World {
   constructor(readonly maze: Maze) {
     this.scene.background = new Color('#d6c56a')
     this.scene.fog = null
-    this.scene.add(new AmbientLight(0xe8d98a, 0.95))
-    this.scene.add(new HemisphereLight(0xfff3c0, 0xc4a84a, 0.9))
+    this.scene.add(new AmbientLight(0xe8d98a, 1.15))
+    this.scene.add(new HemisphereLight(0xfff3c0, 0xc4a84a, 1.05))
     this.scene.add(this.root)
     this.build()
   }
 
   update(time: number) {
+    // flicker only a couple lights, infrequently
     for (const fixture of this.lights) {
-      if (time > fixture.next) {
-        const roll = Math.random()
-        const material = fixture.mesh.material as MeshStandardMaterial
-
-        if (roll < 0.22) {
-          // hard blink out
-          fixture.light.intensity = 0
-          material.emissiveIntensity = 0.04
-          fixture.next = time + 0.05 + Math.random() * 0.12
-        } else if (roll < 0.45) {
-          // stutter flicker
-          fixture.light.intensity = 0.25 + Math.random() * 0.7
-          material.emissiveIntensity = 0.25 + Math.random() * 0.6
-          fixture.next = time + 0.03 + Math.random() * 0.08
-        } else {
-          // steady buzz
-          fixture.light.intensity = 1.9 + Math.random() * 0.4
-          material.emissiveIntensity = 1.5 + Math.random() * 0.4
-          fixture.next = time + 0.6 + Math.random() * 2.4
-        }
+      if (time < fixture.next) continue
+      const roll = Math.random()
+      const material = fixture.mesh.material as MeshStandardMaterial
+      if (roll < 0.12) {
+        fixture.light.intensity = 0
+        material.emissiveIntensity = 0.05
+        fixture.next = time + 0.12 + Math.random() * 0.2
+      } else {
+        fixture.light.intensity = 2.2 + Math.random() * 0.3
+        material.emissiveIntensity = 1.5
+        fixture.next = time + 1.2 + Math.random() * 3
       }
     }
   }
@@ -89,36 +83,33 @@ export class World {
     const wallGeo = new BoxGeometry(CELL, HEIGHT, THICK)
     const wallGeoZ = new BoxGeometry(THICK, HEIGHT, CELL)
     const lightGeo = new BoxGeometry(2.2, 0.06, 0.42)
-    const bloodMap = makeBloodDecal()
-    const bloodMat = new MeshStandardMaterial({
-      map: bloodMap,
-      transparent: true,
-      depthWrite: false,
-      roughness: 0.95,
-      metalness: 0,
-      color: '#ffffff',
-    })
-    const bloodGeo = new PlaneGeometry(1, 1.4)
+    const puddleGeo = new PlaneGeometry(1, 1)
 
-    const addBlood = (
-      x: number,
-      y: number,
-      z: number,
-      rotY: number,
-      scale = 1,
-    ) => {
-      const stain = new Mesh(bloodGeo, bloodMat)
-      stain.position.set(x, y, z)
-      stain.rotation.y = rotY
-      stain.scale.setScalar(0.7 + Math.random() * 1.4 * scale)
-      this.root.add(stain)
-    }
+    // few shared puddle materials (not one per puddle)
+    const puddleMats = Array.from({ length: 3 }, () => {
+      const map = makeBloodPuddle()
+      map.generateMipmaps = false
+      return new MeshStandardMaterial({
+        map,
+        transparent: true,
+        depthWrite: false,
+        roughness: 0.35,
+        metalness: 0,
+        color: '#ffffff',
+        opacity: 0.9,
+      })
+    })
+
+    let puddleCount = 0
+    let lightCount = 0
+    const openCells: Array<{ x: number; z: number; cx: number; cz: number }> = []
 
     for (let z = 0; z < this.maze.height; z += 1) {
       for (let x = 0; x < this.maze.width; x += 1) {
         if (!this.maze.isOpen(x, z)) continue
         const cx = (x + 0.5) * CELL
         const cz = (z + 0.5) * CELL
+        openCells.push({ x, z, cx, cz })
 
         const floor = new Mesh(floorGeo, carpet)
         floor.rotation.x = -Math.PI / 2
@@ -134,69 +125,72 @@ export class World {
           const wall = new Mesh(wallGeo, wallpaper)
           wall.position.set(cx, HEIGHT / 2, z * CELL)
           this.root.add(wall)
-          if (Math.random() < 0.28) {
-            addBlood(cx + (Math.random() - 0.5) * 2.2, 0.9 + Math.random() * 1.5, z * CELL + 0.09, 0)
-          }
         }
         if (!this.maze.isOpen(x, z + 1)) {
           const wall = new Mesh(wallGeo, wallpaper)
           wall.position.set(cx, HEIGHT / 2, (z + 1) * CELL)
           this.root.add(wall)
-          if (Math.random() < 0.28) {
-            addBlood(
-              cx + (Math.random() - 0.5) * 2.2,
-              0.9 + Math.random() * 1.5,
-              (z + 1) * CELL - 0.09,
-              Math.PI,
-            )
-          }
         }
         if (!this.maze.isOpen(x - 1, z)) {
           const wall = new Mesh(wallGeoZ, wallpaper)
           wall.position.set(x * CELL, HEIGHT / 2, cz)
           this.root.add(wall)
-          if (Math.random() < 0.28) {
-            addBlood(
-              x * CELL + 0.09,
-              0.9 + Math.random() * 1.5,
-              cz + (Math.random() - 0.5) * 2.2,
-              Math.PI / 2,
-            )
-          }
         }
         if (!this.maze.isOpen(x + 1, z)) {
           const wall = new Mesh(wallGeoZ, wallpaper)
           wall.position.set((x + 1) * CELL, HEIGHT / 2, cz)
           this.root.add(wall)
-          if (Math.random() < 0.28) {
-            addBlood(
-              (x + 1) * CELL - 0.09,
-              0.9 + Math.random() * 1.5,
-              cz + (Math.random() - 0.5) * 2.2,
-              -Math.PI / 2,
-            )
-          }
         }
 
-        if ((x + z) % 2 === 0) {
-          const mesh = new Mesh(lightGeo, fixtureMat.clone())
+        // visual fixtures without real lights on most cells
+        if ((x + z) % 3 === 0) {
+          const mesh = new Mesh(lightGeo, fixtureMat)
           mesh.position.set(cx, HEIGHT - 0.04, cz)
           this.root.add(mesh)
-          if (x % 2 === 0 && z % 2 === 0) {
-            const light = new PointLight(0xfff3c4, 2.1, CELL * 4.2, 1.05)
-            light.position.set(cx, HEIGHT - 0.2, cz)
-            this.root.add(light)
-            this.lights.push({ mesh, light, next: Math.random() * 2 })
-          }
         }
       }
+    }
+
+    // place a limited number of real point lights far apart
+    for (let i = openCells.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[openCells[i], openCells[j]] = [openCells[j], openCells[i]]
+    }
+    for (const cell of openCells) {
+      if (lightCount >= MAX_LIGHTS) break
+      if (lightCount > 0 && Math.random() > 0.35) continue
+      const mesh = new Mesh(lightGeo, fixtureMat.clone())
+      mesh.position.set(cell.cx, HEIGHT - 0.04, cell.cz)
+      const light = new PointLight(0xfff3c4, 2.4, CELL * 5.5, 1)
+      light.position.set(cell.cx, HEIGHT - 0.2, cell.cz)
+      this.root.add(mesh, light)
+      this.lights.push({ mesh, light, next: Math.random() * 2 })
+      lightCount += 1
+    }
+
+    for (const cell of openCells) {
+      if (puddleCount >= MAX_PUDDLES) break
+      if (Math.random() > 0.08) continue
+      const mat = puddleMats[puddleCount % puddleMats.length]
+      const puddle = new Mesh(puddleGeo, mat)
+      puddle.rotation.x = -Math.PI / 2
+      puddle.rotation.z = Math.random() * Math.PI * 2
+      puddle.position.set(
+        cell.cx + (Math.random() - 0.5) * CELL * 0.5,
+        0.012,
+        cell.cz + (Math.random() - 0.5) * CELL * 0.5,
+      )
+      const size = 1.0 + Math.random() * 1.4
+      puddle.scale.set(size, size * (0.75 + Math.random() * 0.3), 1)
+      this.root.add(puddle)
+      puddleCount += 1
     }
 
     const exit = this.maze.cellCenter(this.maze.exit)
     const door = new Mesh(new BoxGeometry(1.2, 2.3, 0.12), exitMat)
     door.position.set(exit.x, 1.15, exit.z)
     this.root.add(door)
-    const glow = new PointLight(0x6a4a18, 1.4, 7, 2)
+    const glow = new PointLight(0x6a4a18, 1.2, 7, 2)
     glow.position.set(exit.x, 1.6, exit.z)
     this.root.add(glow)
   }

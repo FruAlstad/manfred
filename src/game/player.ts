@@ -13,6 +13,10 @@ export class Player {
   stamina = 1
   private velocity = new Vector3()
   private regenDelay = 0
+  private readonly _forward = new Vector3()
+  private readonly _right = new Vector3()
+  private readonly _wish = new Vector3()
+  private readonly _euler = new Euler(0, 0, 0, 'YXZ')
 
   constructor(maze: Maze) {
     const start = maze.cellCenter(maze.start)
@@ -52,7 +56,8 @@ export class Player {
   }
 
   euler() {
-    return new Euler(this.pitch, this.yaw, 0, 'YXZ')
+    this._euler.set(this.pitch, this.yaw, 0, 'YXZ')
+    return this._euler
   }
 
   update(
@@ -72,18 +77,21 @@ export class Player {
     }
 
     const speed = sprinting ? SPRINT : WALK
-    const forward = new Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw))
-    const right = new Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw))
-    const wish = new Vector3()
-    wish.addScaledVector(forward, input.z)
-    wish.addScaledVector(right, input.x)
-    if (wish.lengthSq() > 0) wish.normalize()
+    this._forward.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw))
+    this._right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw))
+    this._wish.set(0, 0, 0)
+    this._wish.addScaledVector(this._forward, input.z)
+    this._wish.addScaledVector(this._right, input.x)
+    if (this._wish.lengthSq() > 0) this._wish.normalize().multiplyScalar(speed)
 
-    this.velocity.lerp(wish.multiplyScalar(speed), 1 - Math.pow(0.0008, dt))
+    this.velocity.lerp(this._wish, 1 - Math.pow(0.0008, dt))
     this.position.x += this.velocity.x * dt
     this.position.z += this.velocity.z * dt
     this.collide(maze)
-    this.position.y = EYE + Math.sin(performance.now() * 0.009 * (sprinting ? 1.6 : 1)) * (this.speed() > 0.4 ? 0.018 : 0.004)
+    this.position.y =
+      EYE +
+      Math.sin(performance.now() * 0.009 * (sprinting ? 1.6 : 1)) *
+        (this.speed() > 0.4 ? 0.018 : 0.004)
   }
 
   speed() {

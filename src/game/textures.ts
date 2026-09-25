@@ -57,59 +57,118 @@ export function makeWallpaper() {
       ctx.lineTo(x, size)
       ctx.stroke()
     }
-    paintBlood(ctx, size, 14)
     addNoise(ctx, size, 22)
   })
   texture.repeat.set(2.2, 1.4)
   return texture
 }
 
-export function makeBloodDecal() {
-  return noiseCanvas(256, (ctx, size) => {
+/** Irregular wet blood puddle for the floor. */
+export function makeBloodPuddle() {
+  return noiseCanvas(512, (ctx, size) => {
     ctx.clearRect(0, 0, size, size)
-    paintBlood(ctx, size, 8)
-    for (let i = 0; i < 18; i += 1) {
-      const x = Math.random() * size
-      let y = Math.random() * size * 0.45
-      ctx.strokeStyle = `rgba(${90 + Math.random() * 50}, 8, 8, ${0.35 + Math.random() * 0.45})`
-      ctx.lineWidth = 1 + Math.random() * 3
+    const cx = size * 0.5
+    const cy = size * 0.5
+
+    // main irregular puddle body
+    drawPuddleBlob(ctx, cx, cy, size * 0.34, 1, 0.78)
+    // connected lobes
+    drawPuddleBlob(ctx, cx + size * 0.16, cy - size * 0.08, size * 0.16, 0.85, 0.55)
+    drawPuddleBlob(ctx, cx - size * 0.14, cy + size * 0.1, size * 0.14, 0.8, 0.5)
+    drawPuddleBlob(ctx, cx + size * 0.05, cy + size * 0.18, size * 0.12, 0.75, 0.42)
+
+    // satellite droplets
+    for (let i = 0; i < 14; i += 1) {
+      const angle = Math.random() * Math.PI * 2
+      const dist = size * (0.22 + Math.random() * 0.22)
+      const dx = cx + Math.cos(angle) * dist
+      const dy = cy + Math.sin(angle) * dist
+      drawPuddleBlob(ctx, dx, dy, 4 + Math.random() * 14, 0.7, 0.35 + Math.random() * 0.25)
+    }
+
+    // thin wet trails between lobes
+    for (let i = 0; i < 6; i += 1) {
+      const a = Math.random() * Math.PI * 2
+      const len = size * (0.12 + Math.random() * 0.18)
+      ctx.strokeStyle = `rgba(${70 + Math.random() * 40}, 4, 4, ${0.25 + Math.random() * 0.3})`
+      ctx.lineWidth = 1.5 + Math.random() * 3
+      ctx.lineCap = 'round'
       ctx.beginPath()
-      ctx.moveTo(x, y)
-      while (y < size) {
-        y += 6 + Math.random() * 14
-        ctx.lineTo(x + (Math.random() - 0.5) * 10, y)
-      }
+      ctx.moveTo(cx + Math.cos(a) * size * 0.08, cy + Math.sin(a) * size * 0.08)
+      ctx.quadraticCurveTo(
+        cx + Math.cos(a) * len * 0.55 + (Math.random() - 0.5) * 20,
+        cy + Math.sin(a) * len * 0.55 + (Math.random() - 0.5) * 20,
+        cx + Math.cos(a) * len,
+        cy + Math.sin(a) * len,
+      )
       ctx.stroke()
     }
+
+    // subtle surface noise for wet look
+    const image = ctx.getImageData(0, 0, size, size)
+    const { data } = image
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 8) continue
+      const n = (Math.random() - 0.5) * 18
+      data[i] = Math.max(0, Math.min(255, data[i] + n))
+      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + n * 0.2))
+      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + n * 0.15))
+    }
+    ctx.putImageData(image, 0, 0)
   })
 }
 
-function paintBlood(
+function drawPuddleBlob(
   ctx: CanvasRenderingContext2D,
-  size: number,
-  blobs: number,
+  x: number,
+  y: number,
+  radius: number,
+  opacity: number,
+  stretch: number,
 ) {
-  for (let i = 0; i < blobs; i += 1) {
-    const x = Math.random() * size
-    const y = Math.random() * size
-    const r = 10 + Math.random() * 48
-    const gradient = ctx.createRadialGradient(x, y, 0, x, y, r)
-    gradient.addColorStop(0, `rgba(${110 + Math.random() * 40}, 10, 10, 0.72)`)
-    gradient.addColorStop(0.55, `rgba(70, 6, 6, 0.42)`)
-    gradient.addColorStop(1, 'rgba(40, 0, 0, 0)')
-    ctx.fillStyle = gradient
-    ctx.beginPath()
-    ctx.ellipse(
-      x,
-      y,
-      r,
-      r * (0.55 + Math.random() * 0.7),
-      Math.random() * Math.PI,
-      0,
-      Math.PI * 2,
-    )
-    ctx.fill()
+  const lobes = 10 + Math.floor(Math.random() * 6)
+  ctx.beginPath()
+  for (let i = 0; i <= lobes; i += 1) {
+    const t = (i / lobes) * Math.PI * 2
+    const wobble = 0.72 + Math.random() * 0.45
+    const px = x + Math.cos(t) * radius * wobble
+    const py = y + Math.sin(t) * radius * stretch * wobble
+    if (i === 0) ctx.moveTo(px, py)
+    else ctx.lineTo(px, py)
   }
+  ctx.closePath()
+
+  const gradient = ctx.createRadialGradient(x, y, radius * 0.05, x, y, radius * 1.15)
+  gradient.addColorStop(0, `rgba(95, 8, 8, ${0.95 * opacity})`)
+  gradient.addColorStop(0.35, `rgba(70, 5, 5, ${0.82 * opacity})`)
+  gradient.addColorStop(0.7, `rgba(45, 3, 3, ${0.55 * opacity})`)
+  gradient.addColorStop(1, 'rgba(25, 0, 0, 0)')
+  ctx.fillStyle = gradient
+  ctx.fill()
+
+  // darker wet core
+  const core = ctx.createRadialGradient(x - radius * 0.1, y - radius * 0.08, 0, x, y, radius * 0.45)
+  core.addColorStop(0, `rgba(35, 0, 0, ${0.55 * opacity})`)
+  core.addColorStop(1, 'rgba(35, 0, 0, 0)')
+  ctx.fillStyle = core
+  ctx.beginPath()
+  ctx.ellipse(x, y, radius * 0.45, radius * stretch * 0.4, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  // thin glossy rim highlight
+  ctx.strokeStyle = `rgba(140, 30, 30, ${0.22 * opacity})`
+  ctx.lineWidth = 1.2
+  ctx.beginPath()
+  for (let i = 0; i <= lobes; i += 1) {
+    const t = (i / lobes) * Math.PI * 2
+    const wobble = 0.7 + Math.random() * 0.35
+    const px = x + Math.cos(t) * radius * wobble * 0.92
+    const py = y + Math.sin(t) * radius * stretch * wobble * 0.92
+    if (i === 0) ctx.moveTo(px, py)
+    else ctx.lineTo(px, py)
+  }
+  ctx.closePath()
+  ctx.stroke()
 }
 
 export function makeCarpet() {

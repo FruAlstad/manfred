@@ -1,8 +1,6 @@
 export class GameAudio {
   private context: AudioContext | null = null
   private master: GainNode | null = null
-  private hum: GainNode | null = null
-  private lastStep = 0
 
   start() {
     if (this.context) {
@@ -14,7 +12,6 @@ export class GameAudio {
     this.master = context.createGain()
     this.master.gain.value = 0.28
     this.master.connect(context.destination)
-    this.startHum()
   }
 
   async ensureRunning() {
@@ -24,34 +21,68 @@ export class GameAudio {
     }
   }
 
-  setHunting(active: boolean) {
-    if (!this.hum || !this.context) return
-    this.hum.gain.setTargetAtTime(active ? 0.55 : 0.18, this.context.currentTime, 0.4)
+  setHunting(_active: boolean) {
+    // ambient hunting hum removed — it caused lag
   }
 
-  footstep(speed: number) {
-    if (!this.context || !this.master || speed < 0.4) return
-    const now = this.context.currentTime
-    const interval = speed > 10 ? 0.22 : 0.36
-    if (now - this.lastStep < interval) return
-    this.lastStep = now
+  footstep(_speed: number) {
+    // footsteps removed — they caused lag
+  }
 
-    const noise = this.context.createBufferSource()
-    const buffer = this.context.createBuffer(1, this.context.sampleRate * 0.08, this.context.sampleRate)
+  swing() {
+    this.start()
+    if (!this.context || !this.master) return
+    void this.context.resume()
+    const now = this.context.currentTime
+    const whoosh = this.context.createBufferSource()
+    const buffer = this.context.createBuffer(1, this.context.sampleRate * 0.18, this.context.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < data.length; i += 1) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 1.5)
+    }
+    whoosh.buffer = buffer
+    const filter = this.context.createBiquadFilter()
+    filter.type = 'bandpass'
+    filter.frequency.value = 900
+    const gain = this.context.createGain()
+    gain.gain.value = 0.55
+    whoosh.connect(filter)
+    filter.connect(gain)
+    gain.connect(this.master)
+    whoosh.start(now)
+  }
+
+  hit() {
+    this.start()
+    if (!this.context || !this.master) return
+    void this.context.resume()
+    const now = this.context.currentTime
+
+    const thud = this.context.createOscillator()
+    thud.type = 'sine'
+    thud.frequency.setValueAtTime(120, now)
+    thud.frequency.exponentialRampToValueAtTime(40, now + 0.2)
+    const thudGain = this.context.createGain()
+    thudGain.gain.setValueAtTime(0.0001, now)
+    thudGain.gain.exponentialRampToValueAtTime(1.1, now + 0.01)
+    thudGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25)
+    thud.connect(thudGain)
+    thudGain.connect(this.master)
+    thud.start(now)
+    thud.stop(now + 0.3)
+
+    const crunch = this.context.createBufferSource()
+    const buffer = this.context.createBuffer(1, this.context.sampleRate * 0.12, this.context.sampleRate)
     const data = buffer.getChannelData(0)
     for (let i = 0; i < data.length; i += 1) {
       data[i] = (Math.random() * 2 - 1) * (1 - i / data.length)
     }
-    noise.buffer = buffer
-    const filter = this.context.createBiquadFilter()
-    filter.type = 'lowpass'
-    filter.frequency.value = 420
-    const gain = this.context.createGain()
-    gain.gain.value = 0.35
-    noise.connect(filter)
-    filter.connect(gain)
-    gain.connect(this.master)
-    noise.start()
+    crunch.buffer = buffer
+    const crunchGain = this.context.createGain()
+    crunchGain.gain.value = 0.7
+    crunch.connect(crunchGain)
+    crunchGain.connect(this.master)
+    crunch.start(now)
   }
 
   jumpscare() {
@@ -60,37 +91,29 @@ export class GameAudio {
     void this.context.resume()
 
     const now = this.context.currentTime
+    // loud dedicated bus so jumpscare always cuts through
     const scare = this.context.createGain()
-    scare.gain.value = 1.4
+    scare.gain.value = 2.0
     scare.connect(this.context.destination)
 
-    if (this.hum) {
-      this.hum.gain.setValueAtTime(this.hum.gain.value, now)
-      this.hum.gain.linearRampToValueAtTime(0.01, now + 0.04)
-    }
     this.master.gain.setValueAtTime(this.master.gain.value, now)
-    this.master.gain.linearRampToValueAtTime(0.05, now + 0.04)
+    this.master.gain.linearRampToValueAtTime(0.04, now + 0.03)
 
     this.impactHit(scare, now)
     this.deathScream(scare, now)
-    this.deathScream(scare, now + 0.55)
-    this.zombieRoar(scare, now + 0.1)
-    this.biteChomp(scare, now + 0.08)
-    this.biteChomp(scare, now + 0.28)
+    this.deathScream(scare, now + 0.4)
+    this.zombieRoar(scare, now)
+    this.biteChomp(scare, now + 0.06)
+    this.biteChomp(scare, now + 0.22)
     this.staticBurst(scare, now)
-    this.wetGrowl(scare, now + 0.15)
-    this.heartbeat(scare, now + 0.4)
-    this.heartbeat(scare, now + 0.75)
-    this.heartbeat(scare, now + 1.15)
-    this.stinger(scare, now + 0.05)
-    this.distantScream(scare, now + 0.45)
+    this.wetGrowl(scare, now + 0.1)
+    this.stinger(scare, now)
+    this.distantScream(scare, now + 0.35)
+    this.heartbeat(scare, now + 0.5)
+    this.heartbeat(scare, now + 0.9)
 
-    this.master.gain.setValueAtTime(0.05, now + 2)
-    this.master.gain.linearRampToValueAtTime(0.28, now + 2.6)
-    if (this.hum) {
-      this.hum.gain.setValueAtTime(0.01, now + 2)
-      this.hum.gain.linearRampToValueAtTime(0.18, now + 2.7)
-    }
+    this.master.gain.setValueAtTime(0.04, now + 2)
+    this.master.gain.linearRampToValueAtTime(0.28, now + 2.5)
   }
 
   deathCry() {
@@ -432,34 +455,5 @@ export class GameAudio {
     gain.connect(this.master)
     osc.start()
     osc.stop(this.context.currentTime + 1.5)
-  }
-
-  private startHum() {
-    if (!this.context || !this.master) return
-    const makeOsc = (freq: number, type: OscillatorType) => {
-      const osc = this.context!.createOscillator()
-      osc.type = type
-      osc.frequency.value = freq
-      osc.start()
-      return osc
-    }
-
-    this.hum = this.context.createGain()
-    this.hum.gain.value = 0.18
-    const filter = this.context.createBiquadFilter()
-    filter.type = 'bandpass'
-    filter.frequency.value = 110
-    filter.Q.value = 0.7
-
-    makeOsc(50, 'sawtooth').connect(filter)
-    makeOsc(120, 'square').connect(filter)
-    filter.connect(this.hum)
-    this.hum.connect(this.master)
-
-    const lfo = makeOsc(0.13, 'sine')
-    const lfoGain = this.context.createGain()
-    lfoGain.gain.value = 18
-    lfo.connect(lfoGain)
-    lfoGain.connect(filter.frequency)
   }
 }
