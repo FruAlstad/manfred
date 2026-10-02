@@ -1,7 +1,8 @@
 import { Euler, MathUtils, Vector3 } from 'three'
 import { CELL, Maze } from './maze'
+import type { Box2 } from './street'
 
-const EYE = 1.64
+const EYE = 1.58
 const RADIUS = 0.32
 const WALK = 7.2
 const SPRINT = 14.4
@@ -13,6 +14,10 @@ export class Player {
   stamina = 1
   private velocity = new Vector3()
   private regenDelay = 0
+  private stepPhase = 0
+  private bobPitch = 0
+  private bobRoll = 0
+  private bobYaw = 0
   private readonly _forward = new Vector3()
   private readonly _right = new Vector3()
   private readonly _wish = new Vector3()
@@ -56,14 +61,31 @@ export class Player {
   }
 
   euler() {
-    this._euler.set(this.pitch, this.yaw, 0, 'YXZ')
+    this._euler.set(
+      this.pitch + this.bobPitch,
+      this.yaw + this.bobYaw,
+      this.bobRoll,
+      'YXZ',
+    )
     return this._euler
+  }
+
+  place(x: number, z: number, yaw: number) {
+    this.position.set(x, EYE, z)
+    this.yaw = yaw
+    this.pitch = 0
+    this.velocity.set(0, 0, 0)
+    this.stepPhase = 0
+    this.bobPitch = 0
+    this.bobRoll = 0
+    this.bobYaw = 0
   }
 
   update(
     dt: number,
     input: { x: number; z: number; sprint: boolean },
-    maze: Maze,
+    maze: Maze | null,
+    solids?: Box2[],
   ) {
     const sprinting = input.sprint && this.stamina > 0.05 && (input.x !== 0 || input.z !== 0)
     if (sprinting) {
@@ -84,14 +106,36 @@ export class Player {
     this._wish.addScaledVector(this._right, input.x)
     if (this._wish.lengthSq() > 0) this._wish.normalize().multiplyScalar(speed)
 
-    this.velocity.lerp(this._wish, 1 - Math.pow(0.0008, dt))
+    // snappier accel so movement feels planted, not icy/flying
+    const accel = this._wish.lengthSq() > 0 ? 0.00005 : 0.0002
+    this.velocity.lerp(this._wish, 1 - Math.pow(accel, dt))
     this.position.x += this.velocity.x * dt
     this.position.z += this.velocity.z * dt
-    this.collide(maze)
-    this.position.y =
-      EYE +
-      Math.sin(performance.now() * 0.009 * (sprinting ? 1.6 : 1)) *
-        (this.speed() > 0.4 ? 0.018 : 0.004)
+    if (maze) this.collide(maze)
+    if (solids) this.collideBoxes(solids)
+
+    const spd = this.speed()
+    const moving = spd > 0.35
+    if (moving) {
+      // step cycle based on distance traveled
+      const stepRate = sprinting ? 2.35 : 1.55
+      this.stepPhase += spd * dt * stepRate
+
+      const bobAmp = sprinting ? 0.042 : 0.028
+      const foot = Math.abs(Math.sin(this.stepPhase))
+      const side = Math.sin(this.stepPhase)
+
+      this.position.y = EYE + foot * bobAmp - bobAmp * 0.12
+      this.bobPitch = -foot * (sprinting ? 0.018 : 0.012)
+      this.bobRoll = side * (sprinting ? 0.012 : 0.008)
+      this.bobYaw = 0
+    } else {
+      this.stepPhase *= 0.9
+      this.position.y = MathUtils.lerp(this.position.y, EYE, 1 - Math.pow(0.001, dt))
+      this.bobPitch = MathUtils.lerp(this.bobPitch, 0, 1 - Math.pow(0.001, dt))
+      this.bobRoll = MathUtils.lerp(this.bobRoll, 0, 1 - Math.pow(0.001, dt))
+      this.bobYaw = MathUtils.lerp(this.bobYaw, 0, 1 - Math.pow(0.001, dt))
+    }
   }
 
   speed() {
@@ -103,32 +147,38 @@ export class Player {
     for (let z = cell.z - 1; z <= cell.z + 1; z += 1) {
       for (let x = cell.x - 1; x <= cell.x + 1; x += 1) {
         if (maze.isOpen(x, z)) continue
-        const minX = x * CELL
-        const maxX = (x + 1) * CELL
-        const minZ = z * CELL
-        const maxZ = (z + 1) * CELL
-        const nearestX = MathUtils.clamp(this.position.x, minX, maxX)
-        const nearestZ = MathUtils.clamp(this.position.z, minZ, maxZ)
-        const dx = this.position.x - nearestX
-        const dz = this.position.z - nearestZ
-        const dist = Math.hypot(dx, dz)
-        if (dist >= RADIUS) continue
-        if (dist === 0) {
-          const left = this.position.x - minX
-          const right = maxX - this.position.x
-          const up = this.position.z - minZ
-          const down = maxZ - this.position.z
-          const smallest = Math.min(left, right, up, down)
-          if (smallest === left) this.position.x = minX - RADIUS
-          else if (smallest === right) this.position.x = maxX + RADIUS
-          else if (smallest === up) this.position.z = minZ - RADIUS
-          else this.position.z = maxZ + RADIUS
-          continue
-        }
-        const push = (RADIUS - dist) / dist
-        this.position.x += dx * push
-        this.position.z += dz * push
+        this.resolveBox(x * CELL, (x + 1) * CELL, z * CELL, (z + 1) * CELL)
       }
     }
+  }
+
+  private collideBoxes(solids: Box2[]) {
+    for (const box of solids) {
+      this.resolveBox(box.minX, box.maxX, box.minZ, box.maxZ)
+    }
+  }
+
+  private resolveBox(minX: number, maxX: number, minZ: number, maxZ: number) {
+    const nearestX = MathUtils.clamp(this.position.x, minX, maxX)
+    const nearestZ = MathUtils.clamp(this.position.z, minZ, maxZ)
+    const dx = this.position.x - nearestX
+    const dz = this.position.z - nearestZ
+    const dist = Math.hypot(dx, dz)
+    if (dist >= RADIUS) return
+    if (dist === 0) {
+      const left = this.position.x - minX
+      const right = maxX - this.position.x
+      const up = this.position.z - minZ
+      const down = maxZ - this.position.z
+      const smallest = Math.min(left, right, up, down)
+      if (smallest === left) this.position.x = minX - RADIUS
+      else if (smallest === right) this.position.x = maxX + RADIUS
+      else if (smallest === up) this.position.z = minZ - RADIUS
+      else this.position.z = maxZ + RADIUS
+      return
+    }
+    const push = (RADIUS - dist) / dist
+    this.position.x += dx * push
+    this.position.z += dz * push
   }
 }

@@ -2,6 +2,7 @@ import {
   AmbientLight,
   BoxGeometry,
   Color,
+  CylinderGeometry,
   Group,
   HemisphereLight,
   Mesh,
@@ -9,6 +10,7 @@ import {
   PlaneGeometry,
   PointLight,
   Scene,
+  TorusGeometry,
 } from 'three'
 import { CELL, Maze } from './maze'
 import { makeBloodPuddle, makeCarpet, makeCeiling, makeWallpaper } from './textures'
@@ -22,6 +24,10 @@ export class World {
   readonly scene = new Scene()
   readonly lights: Array<{ mesh: Mesh; light: PointLight; next: number }> = []
   readonly root = new Group()
+  private portalRing!: Mesh
+  private portalCore!: Mesh
+  private portalLight!: PointLight
+  private portalOpen = false
 
   constructor(readonly maze: Maze) {
     this.scene.background = new Color('#d6c56a')
@@ -48,6 +54,26 @@ export class World {
         fixture.next = time + 1.2 + Math.random() * 3
       }
     }
+    if (this.portalOpen) {
+      this.portalRing.rotation.z += 0.035
+      this.portalCore.rotation.z -= 0.02
+      this.portalLight.intensity = 3.8 + Math.sin(time * 5) * 0.9
+    }
+  }
+
+  setPortalOpen(open: boolean) {
+    this.portalOpen = open
+    const ringMat = this.portalRing.material as MeshStandardMaterial
+    const coreMat = this.portalCore.material as MeshStandardMaterial
+    if (open) {
+      ringMat.emissive.set('#3dffc8')
+      ringMat.emissiveIntensity = 2.2
+      coreMat.emissive.set('#9a55ff')
+      coreMat.emissiveIntensity = 2
+      coreMat.color.set('#5533aa')
+      this.portalLight.intensity = 4
+      this.portalLight.color.set('#66eeff')
+    }
   }
 
   private build() {
@@ -71,12 +97,6 @@ export class World {
       emissive: '#fff4c2',
       emissiveIntensity: 1.6,
       roughness: 0.3,
-    })
-    const exitMat = new MeshStandardMaterial({
-      color: '#14110c',
-      emissive: '#3a2a10',
-      emissiveIntensity: 0.8,
-      roughness: 0.7,
     })
 
     const floorGeo = new PlaneGeometry(CELL, CELL)
@@ -187,11 +207,36 @@ export class World {
     }
 
     const exit = this.maze.cellCenter(this.maze.exit)
-    const door = new Mesh(new BoxGeometry(1.2, 2.3, 0.12), exitMat)
-    door.position.set(exit.x, 1.15, exit.z)
-    this.root.add(door)
-    const glow = new PointLight(0x6a4a18, 1.2, 7, 2)
-    glow.position.set(exit.x, 1.6, exit.z)
-    this.root.add(glow)
+    const portal = new Group()
+    portal.position.set(exit.x, 1.35, exit.z)
+
+    const ringMat = new MeshStandardMaterial({
+      color: '#1a1520',
+      emissive: '#251830',
+      emissiveIntensity: 0.35,
+      roughness: 0.35,
+      metalness: 0.55,
+    })
+    const coreMat = new MeshStandardMaterial({
+      color: '#120f18',
+      emissive: '#1a1228',
+      emissiveIntensity: 0.25,
+      roughness: 0.2,
+      transparent: true,
+      opacity: 0.92,
+    })
+
+    this.portalRing = new Mesh(new TorusGeometry(0.9, 0.09, 14, 36), ringMat)
+    this.portalRing.rotation.x = Math.PI / 2
+    portal.add(this.portalRing)
+
+    this.portalCore = new Mesh(new CylinderGeometry(0.62, 0.62, 0.06, 28), coreMat)
+    this.portalCore.rotation.x = Math.PI / 2
+    portal.add(this.portalCore)
+
+    this.portalLight = new PointLight(0x332244, 0.45, 9, 2)
+    portal.add(this.portalLight)
+
+    this.root.add(portal)
   }
 }

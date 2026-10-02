@@ -8,19 +8,24 @@ import { GameAudio } from './audio'
 import { Entity } from './entity'
 import { Maze } from './maze'
 import { Player } from './player'
+import { Street } from './street'
 import { World } from './world'
+import { Zombie } from './zombie'
 
-type Mode = 'title' | 'playing' | 'jumpscare' | 'dead' | 'escaped'
+type Mode = 'title' | 'playing' | 'street' | 'jumpscare' | 'dead' | 'escaped'
 
-const MONSTER_COUNT = 4
+const MONSTER_COUNT = 10
+const ZOMBIE_COUNT = 15
 
 export class Game {
   private renderer: WebGLRenderer
   private camera: PerspectiveCamera
   private maze: Maze
   private world: World
+  private street: Street | null = null
   private player: Player
   private entities: Entity[] = []
+  private zombies: Zombie[] = []
   private axes: Axe[] = []
   private heldAxe: Axe | null = null
   private attackT = 0
@@ -38,6 +43,10 @@ export class Game {
   private pickupPrompt: HTMLElement
   private itemLabel: HTMLElement
   private crosshair: HTMLElement
+  private portalUnlocked = false
+  private streetCleared = false
+  private streetGrace = 0
+  private activeScene: World['scene'] | Street['scene']
 
   constructor(canvas: HTMLCanvasElement) {
     this.overlay = document.querySelector('#overlay') as HTMLElement
@@ -61,6 +70,7 @@ export class Game {
     this.maze = new Maze(21, 21)
     this.world = new World(this.maze)
     this.world.scene.fog = new FogExp2(0xd4c46a, 0.045)
+    this.activeScene = this.world.scene
     this.player = new Player(this.maze)
 
     const spawns = this.maze.spawnCells(MONSTER_COUNT, 7)
@@ -96,21 +106,27 @@ export class Game {
     })
     addEventListener('keyup', (event) => this.keys.delete(event.code))
     addEventListener('mousemove', (event) => {
-      if (document.pointerLockElement && this.mode === 'playing') {
+      if (
+        document.pointerLockElement &&
+        (this.mode === 'playing' || this.mode === 'street')
+      ) {
         this.player.look(event.movementX, event.movementY)
       }
     })
     this.renderer.domElement.addEventListener('mousedown', (event) => {
       if (event.button !== 0) return
-      if (this.mode !== 'playing') return
+      if (this.mode !== 'playing' && this.mode !== 'street') return
       if (!document.pointerLockElement) {
         this.renderer.domElement.requestPointerLock()
         return
       }
-      this.mouseClicked = true
+      if (this.mode === 'playing' || this.mode === 'street') this.mouseClicked = true
     })
     this.renderer.domElement.addEventListener('click', () => {
-      if (this.mode === 'playing' && !document.pointerLockElement) {
+      if (
+        (this.mode === 'playing' || this.mode === 'street') &&
+        !document.pointerLockElement
+      ) {
         this.renderer.domElement.requestPointerLock()
       }
     })
@@ -226,13 +242,107 @@ export class Game {
       hit = true
     }
 
+    for (const zombie of this.zombies) {
+      if (zombie.dead) continue
+      const dx = zombie.position.x - this.player.position.x
+      const dz = zombie.position.z - this.player.position.z
+      const dist = Math.hypot(dx, dz)
+      if (dist > reach || dist < 0.01) continue
+      const dot = (dx / dist) * forwardX + (dz / dist) * forwardZ
+      if (dist > 2.2 && dot < 0.05) continue
+      zombie.kill()
+      hit = true
+    }
+
     if (hit) {
       this.audio.hit()
-      this.hint.textContent = 'monster slain.'
+      const left = this.zombies.filter((z) => !z.dead).length
+      this.hint.textContent =
+        this.mode === 'street'
+          ? left === 0
+            ? 'street cleared.'
+            : `zombie down. ${left} left.`
+          : 'monster slain.'
       this.hint.hidden = false
       setTimeout(() => {
         this.hint.hidden = true
       }, 1800)
+    }
+  }
+
+  private allMonstersDead() {
+    return this.entities.every((entity) => entity.dead)
+  }
+
+  private updatePortalHint(toPortal: number) {
+    const allDead = this.allMonstersDead()
+    if (allDead && !this.portalUnlocked) {
+      this.portalUnlocked = true
+      this.world.setPortalOpen(true)
+      this.hint.textContent = 'all dead. find the portal.'
+      this.hint.hidden = false
+      return
+    }
+    if (toPortal > 3) return
+    if (!allDead) {
+      this.hint.textContent = 'the portal is sealed. kill all 10 monsters.'
+      this.hint.hidden = false
+      return
+    }
+    this.hint.textContent = 'step through the portal.'
+    this.hint.hidden = false
+  }
+
+  private enterStreet() {
+    this.audio.exit()
+    this.mode = 'street'
+    this.portalUnlocked = false
+    this.streetCleared = false
+    this.streetGrace = 5
+    this.pickupPrompt.hidden = true
+
+    for (const entity of this.entities) {
+      this.world.scene.remove(entity.group)
+    }
+    for (const axe of this.axes) {
+      this.world.scene.remove(axe.group)
+    }
+    this.entities = []
+    this.axes = []
+
+    // keep axe for the apocalypse, or give one if empty-handed
+    if (!this.heldAxe) {
+      const spare = new Axe(this.maze, this.maze.start)
+      spare.pickup()
+      this.heldAxe = spare
+      this.camera.add(spare.held)
+      spare.held.visible = true
+    }
+    this.itemLabel.hidden = false
+    this.itemLabel.textContent = 'AXE'
+
+    this.street = new Street()
+    this.activeScene = this.street.scene
+    this.street.scene.add(this.camera)
+    this.camera.far = 120
+    this.camera.updateProjectionMatrix()
+    this.player.place(this.street.spawn.x, this.street.spawn.z, this.street.spawn.yaw)
+
+    this.zombies = []
+    for (const spawn of this.street.zombieSpawns.slice(0, ZOMBIE_COUNT)) {
+      const zombie = new Zombie(spawn.x, spawn.z, Math.PI)
+      this.zombies.push(zombie)
+      this.street.scene.add(zombie.group)
+    }
+
+    this.hint.textContent = '5 seconds. run. hide in the houses.'
+    this.hint.hidden = false
+    setTimeout(() => {
+      if (this.mode === 'street' && this.streetGrace <= 0) this.hint.hidden = true
+    }, 5500)
+
+    if (!document.pointerLockElement) {
+      this.renderer.domElement.requestPointerLock()
     }
   }
 
@@ -273,8 +383,8 @@ export class Game {
     } else {
       this.audio.exit()
       this.overlay.innerHTML = `
-        <h1>AN EXIT</h1>
-        <p class="sub">it led somewhere worse. manfred kept walking.</p>
+        <h1>STREET CLEARED</h1>
+        <p class="sub">fifteen zombies down. the equal houses watched in silence.</p>
         <button type="button" id="again">NO-CLIP AGAIN</button>
       `
     }
@@ -302,13 +412,55 @@ export class Game {
       this.audio.footstep(this.player.speed())
       this.staminaBar.style.transform = `scaleX(${this.player.stamina})`
 
-      const exit = this.maze.cellCenter(this.maze.exit)
-      const toExit = Math.hypot(
-        this.player.position.x - exit.x,
-        this.player.position.z - exit.z,
+      const portal = this.maze.cellCenter(this.maze.exit)
+      const toPortal = Math.hypot(
+        this.player.position.x - portal.x,
+        this.player.position.z - portal.z,
       )
-      if (toExit < 1.1) this.end('escaped')
+      this.updatePortalHint(toPortal)
+      if (toPortal < 1.35 && this.allMonstersDead()) this.enterStreet()
       else if (caught) this.triggerJumpscare()
+    } else if (this.mode === 'street' && this.street) {
+      this.player.update(dt, this.input(), null, this.street.solids)
+      this.tryAttack(dt)
+
+      const wasGrace = this.streetGrace > 0
+      this.streetGrace = Math.max(0, this.streetGrace - dt)
+      if (wasGrace && this.streetGrace === 0) {
+        this.hint.textContent = 'they are coming.'
+        this.hint.hidden = false
+        setTimeout(() => {
+          if (this.mode === 'street') this.hint.hidden = true
+        }, 2000)
+      }
+
+      let anyHunting = false
+      let caught = false
+      if (this.streetGrace <= 0) {
+        const hidden = this.street.isHiding(
+          this.player.position.x,
+          this.player.position.z,
+        )
+        const zombieSolids = this.street.solids.concat(this.street.hideZones)
+        for (const zombie of this.zombies) {
+          if (zombie.dead) continue
+          if (zombie.update(dt, this.player, zombieSolids, hidden)) {
+            caught = true
+          }
+          if (zombie.hunting) anyHunting = true
+        }
+      }
+
+      this.street.update(now / 1000)
+      this.audio.setHunting(anyHunting)
+      this.audio.footstep(this.player.speed())
+      this.staminaBar.style.transform = `scaleX(${this.player.stamina})`
+
+      if (caught) this.triggerJumpscare()
+      else if (!this.streetCleared && this.zombies.every((z) => z.dead)) {
+        this.streetCleared = true
+        this.end('escaped')
+      }
     } else if (this.mode === 'jumpscare') {
       this.camera.position.copy(this.player.position)
       this.camera.position.y += Math.sin(now * 0.08) * 0.08
@@ -320,7 +472,7 @@ export class Game {
       this.camera.position.copy(this.player.position)
       this.camera.quaternion.setFromEuler(this.player.euler())
     }
-    this.renderer.render(this.world.scene, this.camera)
+    this.renderer.render(this.activeScene, this.camera)
     requestAnimationFrame(this.loop)
   }
 }
