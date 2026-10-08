@@ -10,6 +10,7 @@ import {
 } from 'three'
 import { Cell, Maze } from './maze'
 import { Player } from './player'
+import type { Trap } from './trap'
 
 const WALK_SPEED = 2.8
 const HUNT_SPEED = 4.6
@@ -57,7 +58,7 @@ export class Entity {
     return this.group.position
   }
 
-  update(dt: number, player: Player) {
+  update(dt: number, player: Player, traps: Trap[] = []) {
     if (this.dead) return false
     const here = this.maze.worldToCell(this.position.x, this.position.z)
     const target = this.maze.worldToCell(player.position.x, player.position.z)
@@ -65,6 +66,8 @@ export class Entity {
     const dist = this.position.distanceTo(this._playerPos)
     const sees = dist < 36 && this.maze.hasLineOfSight(here, target)
     const hears = player.speed() > 10 && dist < 22
+    // reckless only when hunting and almost on the player
+    const reckless = this.hunting && dist < 4.5
 
     if (sees || hears) {
       this.lastSeen = { ...target }
@@ -78,18 +81,26 @@ export class Entity {
       this.lastSeen = null
     }
 
+    const avoid = new Set<string>()
+    if (!reckless) {
+      for (const trap of traps) {
+        if (!trap.armedStill) continue
+        avoid.add(`${trap.cell.x},${trap.cell.z}`)
+      }
+    }
+
     const speed = this.hunting ? HUNT_SPEED : WALK_SPEED
     let moving = 0
 
     if (this.hunting && sees) {
-      moving = this.moveToward(this._playerPos, speed * dt)
+      moving = this.moveToward(this._playerPos, speed * dt, traps, reckless)
     } else {
       this.retarget -= dt
       if (this.retarget <= 0 || this.pathIndex >= this.path.length) {
         const goal = this.hunting
           ? (this.lastSeen ?? target)
-          : this.wanderCell(here)
-        this.path = this.maze.path(here, goal)
+          : this.wanderCell(here, avoid)
+        this.path = this.maze.path(here, goal, avoid)
         this.pathIndex = 1
         this.retarget = this.hunting ? 0.55 : 1.8
       }
@@ -106,7 +117,7 @@ export class Entity {
         const world = this.maze.cellCenter(waypoint)
         this._dest.set(world.x, 0, world.z)
         const before = this.position.distanceTo(this._dest)
-        moving = this.moveToward(this._dest, speed * dt)
+        moving = this.moveToward(this._dest, speed * dt, traps, reckless)
         if (before <= speed * dt + 0.15) this.pathIndex += 1
       }
     }
@@ -122,14 +133,42 @@ export class Entity {
     this.group.visible = false
   }
 
-  private moveToward(dest: Vector3, step: number) {
+  private moveToward(
+    dest: Vector3,
+    step: number,
+    traps: Trap[],
+    reckless: boolean,
+  ) {
     this._offset.copy(dest).sub(this.position)
     this._offset.y = 0
     const len = this._offset.length()
     if (len < 0.001) return 0
 
     if (len > step) this._offset.multiplyScalar(step / len)
-    this.tryMove(this._offset)
+
+    // steer around nearby traps when not reckless
+    if (!reckless) {
+      for (const trap of traps) {
+        if (!trap.armedStill) continue
+        const nx = this.position.x + this._offset.x
+        const nz = this.position.z + this._offset.z
+        if (trap.distanceTo(nx, nz) > 2.2) continue
+        const fromTrapX = nx - trap.worldX
+        const fromTrapZ = nz - trap.worldZ
+        const perpX = -this._offset.z
+        const perpZ = this._offset.x
+        const plen = Math.hypot(perpX, perpZ) || 1
+        const side =
+          Math.sign(perpX * fromTrapX + perpZ * fromTrapZ) || 1
+        this._offset.x += (perpX / plen) * side * step * 0.9
+        this._offset.z += (perpZ / plen) * side * step * 0.9
+        const nlen = this._offset.length()
+        if (nlen > 0.001) this._offset.multiplyScalar(step / nlen)
+        break
+      }
+    }
+
+    this.tryMove(this._offset, traps, reckless)
 
     this._offset.copy(dest).sub(this.position)
     this._offset.y = 0
@@ -143,20 +182,26 @@ export class Entity {
     return 1
   }
 
-  private tryMove(delta: Vector3) {
+  private tryMove(delta: Vector3, traps: Trap[], reckless: boolean) {
     const radius = 0.35
     const nextX = this.position.x + delta.x
     const nextZ = this.position.z + delta.z
 
-    if (this.canStand(nextX, this.position.z, radius)) {
+    if (this.canStand(nextX, this.position.z, radius, traps, reckless)) {
       this.position.x = nextX
     }
-    if (this.canStand(this.position.x, nextZ, radius)) {
+    if (this.canStand(this.position.x, nextZ, radius, traps, reckless)) {
       this.position.z = nextZ
     }
   }
 
-  private canStand(x: number, z: number, radius: number) {
+  private canStand(
+    x: number,
+    z: number,
+    radius: number,
+    traps: Trap[],
+    reckless: boolean,
+  ) {
     const samples = [
       [x, z],
       [x + radius, z],
@@ -164,10 +209,19 @@ export class Entity {
       [x, z + radius],
       [x, z - radius],
     ]
-    return samples.every(([sx, sz]) => {
-      const cell = this.maze.worldToCell(sx, sz)
-      return this.maze.isOpen(cell.x, cell.z)
-    })
+    if (
+      !samples.every(([sx, sz]) => {
+        const cell = this.maze.worldToCell(sx, sz)
+        return this.maze.isOpen(cell.x, cell.z)
+      })
+    ) {
+      return false
+    }
+    if (reckless) return true
+    // refuse to step onto armed traps when being careful
+    return !traps.some(
+      (trap) => trap.armedStill && trap.distanceTo(x, z) < 1.35,
+    )
   }
 
   private animate(dt: number, moving: number, hunting: boolean) {
@@ -189,15 +243,18 @@ export class Entity {
     this.legR.rotation.x = swing * 0.95
   }
 
-  private wanderCell(from: Cell): Cell {
+  private wanderCell(from: Cell, avoid: Set<string>): Cell {
     this.wander -= 1
     if (this.wander <= 0) this.wander = 3 + Math.floor(Math.random() * 5)
-    // cheap wander: walk a few random neighbor steps
+    // cheap wander: walk a few random neighbor steps, prefer safe cells
     let cell = from
     for (let i = 0; i < 6; i += 1) {
-      const options = this.maze.neighbors(cell)
-      if (options.length === 0) break
-      cell = options[Math.floor(Math.random() * options.length)]
+      const options = this.maze
+        .neighbors(cell)
+        .filter((n) => !avoid.has(`${n.x},${n.z}`))
+      const pool = options.length > 0 ? options : this.maze.neighbors(cell)
+      if (pool.length === 0) break
+      cell = pool[Math.floor(Math.random() * pool.length)]
     }
     return cell
   }

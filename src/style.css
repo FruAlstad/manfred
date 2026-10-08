@@ -75,6 +75,44 @@ canvas#scene {
   transform-origin: left;
 }
 
+#boss-hp {
+  position: fixed;
+  left: 50%;
+  top: 28px;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(420px, 70vw);
+  pointer-events: none;
+}
+
+#boss-hp[hidden] {
+  display: none;
+}
+
+#boss-hp span {
+  display: block;
+  margin-bottom: 6px;
+  text-align: center;
+  letter-spacing: 0.28em;
+  font-size: 11px;
+  color: rgba(255, 180, 180, 0.75);
+}
+
+#boss-hp .bar {
+  height: 10px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(180, 40, 40, 0.55);
+}
+
+#boss-hp .bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #8a1010, #e04040);
+  transform-origin: left;
+  transform: scaleX(1);
+}
+
 #hint {
   position: fixed;
   left: 50%;

@@ -67,8 +67,9 @@ export class Maze {
     }
   }
 
-  path(from: Cell, to: Cell): Cell[] {
+  path(from: Cell, to: Cell, avoid?: Set<string>): Cell[] {
     const key = (c: Cell) => `${c.x},${c.z}`
+    const goal = key(to)
     const queue: Cell[] = [from]
     const came = new Map<string, Cell | null>([[key(from), null]])
 
@@ -86,12 +87,17 @@ export class Maze {
       }
 
       for (const next of this.neighbors(current)) {
-        if (came.has(key(next))) continue
-        came.set(key(next), current)
+        const nk = key(next)
+        if (came.has(nk)) continue
+        // smart avoid: skip hazard cells unless that cell is the destination
+        if (avoid && avoid.has(nk) && nk !== goal) continue
+        came.set(nk, current)
         queue.push(next)
       }
     }
 
+    // no safe path — fall back to normal path if we were avoiding
+    if (avoid && avoid.size > 0) return this.path(from, to)
     return []
   }
 

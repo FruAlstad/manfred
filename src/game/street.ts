@@ -2,6 +2,7 @@ import {
   AmbientLight,
   BoxGeometry,
   Color,
+  DirectionalLight,
   FogExp2,
   Group,
   HemisphereLight,
@@ -19,8 +20,8 @@ const HOUSE_LENGTH = 10
 const HOUSE_DEPTH = 8
 const HOUSE_HEIGHT = 7.2
 const HOUSE_GAP = 1.4
-const STREET_WIDTH = 9
-const SIDEWALK = 2.4
+const STREET_WIDTH = 15
+const SIDEWALK = 2.8
 const BLOCKS = 8
 const STREET_HALF = STREET_WIDTH * 0.5
 const WALL = 0.28
@@ -35,13 +36,15 @@ export class Street {
   readonly spawn = { x: 0, z: 0, yaw: 0 }
   readonly zombieSpawns: Array<{ x: number; z: number }> = []
   private readonly root = new Group()
-  private streetLights: PointLight[] = []
 
   constructor() {
-    this.scene.background = new Color('#140f12')
-    this.scene.fog = new FogExp2(0x140f12, 0.032)
-    this.scene.add(new AmbientLight(0x3a3030, 0.4))
-    this.scene.add(new HemisphereLight(0x5a4a40, 0x1a0c0c, 0.35))
+    this.scene.background = new Color('#87b8e0')
+    this.scene.fog = new FogExp2(0xb8d4ec, 0.012)
+    this.scene.add(new AmbientLight(0xfff4e0, 1.15))
+    this.scene.add(new HemisphereLight(0xd8e8ff, 0x8a9a70, 0.95))
+    const sun = new DirectionalLight(0xfff0d0, 1.35)
+    sun.position.set(18, 42, 12)
+    this.scene.add(sun)
     this.scene.add(this.root)
     this.build()
   }
@@ -56,11 +59,8 @@ export class Street {
     )
   }
 
-  update(time: number) {
-    for (let i = 0; i < this.streetLights.length; i += 1) {
-      const light = this.streetLights[i]
-      light.intensity = 2.4 + Math.sin(time * 2.1 + i * 1.7) * 0.15
-    }
+  update(_time: number) {
+    // daytime — no lamp flicker
   }
 
   private build() {
@@ -68,35 +68,34 @@ export class Street {
     const halfLen = roadLen * 0.5
 
     const asphalt = new MeshStandardMaterial({
-      color: '#2a2c32',
-      roughness: 0.95,
+      color: '#5a5e66',
+      roughness: 0.92,
     })
     const curb = new MeshStandardMaterial({
-      color: '#6a6e76',
+      color: '#9a9ea6',
       roughness: 0.85,
     })
     const walk = new MeshStandardMaterial({
-      color: '#4a4e56',
+      color: '#b0b4bc',
       roughness: 0.9,
     })
     const facadeMats = [
-      new MeshStandardMaterial({ color: '#6b5a4a', roughness: 0.88 }),
-      new MeshStandardMaterial({ color: '#5a6270', roughness: 0.88 }),
-      new MeshStandardMaterial({ color: '#7a6a58', roughness: 0.88 }),
-      new MeshStandardMaterial({ color: '#555050', roughness: 0.88 }),
+      new MeshStandardMaterial({ color: '#c4a890', roughness: 0.88 }),
+      new MeshStandardMaterial({ color: '#a8b0c0', roughness: 0.88 }),
+      new MeshStandardMaterial({ color: '#d2bba0', roughness: 0.88 }),
+      new MeshStandardMaterial({ color: '#b8b0a8', roughness: 0.88 }),
     ]
     const roofMat = new MeshStandardMaterial({
-      color: '#1c1a18',
+      color: '#4a4440',
       roughness: 0.92,
     })
     const windowMat = new MeshStandardMaterial({
-      color: '#1a2030',
-      emissive: '#c8a060',
-      emissiveIntensity: 0.35,
-      roughness: 0.4,
+      color: '#7a9ab8',
+      roughness: 0.25,
+      metalness: 0.15,
     })
     const doorMat = new MeshStandardMaterial({
-      color: '#2a1c14',
+      color: '#6a4030',
       roughness: 0.75,
     })
 
@@ -144,11 +143,11 @@ export class Street {
     const roofGeo = new BoxGeometry(HOUSE_DEPTH + 0.6, 0.45, HOUSE_LENGTH + 0.5)
     const windowGeo = new BoxGeometry(0.08, 1.1, 1.0)
     const floorMat = new MeshStandardMaterial({
-      color: '#2a221c',
+      color: '#8a7a68',
       roughness: 0.95,
     })
     const innerMat = new MeshStandardMaterial({
-      color: '#3a322c',
+      color: '#d8cfc4',
       roughness: 0.9,
     })
 
@@ -268,20 +267,10 @@ export class Street {
           }
         }
 
-        // dim interior lamp
-        const glow = new PointLight(0xffcc88, 0.55, 7, 2)
+        // soft daylight leaking indoors
+        const glow = new PointLight(0xfff5e8, 0.7, 8, 2)
         glow.position.set(x, 2.4, z)
         this.root.add(glow)
-        const bulb = new Mesh(
-          new BoxGeometry(0.25, 0.08, 0.25),
-          new MeshStandardMaterial({
-            color: '#f0d080',
-            emissive: '#f0d080',
-            emissiveIntensity: 0.8,
-          }),
-        )
-        bulb.position.set(x, 2.55, z)
-        this.root.add(bulb)
 
         // inner filler so walls aren't paper-thin looking from inside
         const ceiling = new Mesh(
@@ -319,15 +308,13 @@ export class Street {
       this.root.add(wall)
     }
 
-    // Street lamps
-    const poleMat = new MeshStandardMaterial({ color: '#222428', roughness: 0.6 })
+    // Street lamps (off — daytime)
+    const poleMat = new MeshStandardMaterial({ color: '#4a4e56', roughness: 0.6 })
     const lampGeo = new BoxGeometry(0.18, 4.2, 0.18)
     const headGeo = new BoxGeometry(0.55, 0.18, 0.55)
     const headMat = new MeshStandardMaterial({
-      color: '#f0e0a8',
-      emissive: '#f0d080',
-      emissiveIntensity: 1.4,
-      roughness: 0.35,
+      color: '#c8c4b8',
+      roughness: 0.45,
     })
 
     for (let i = 0; i < BLOCKS; i += 1) {
@@ -344,34 +331,32 @@ export class Street {
         const head = new Mesh(headGeo, headMat)
         head.position.set(lx, 4.25, z)
         this.root.add(head)
-        // some lamps dead / flickering red for apocalypse feel
-        const dead = i % 3 === 0
-        const light = new PointLight(
-          dead ? 0xff4422 : 0xffc080,
-          dead ? 0.9 : 2.1,
-          16,
-          2,
-        )
-        light.position.set(lx, 4.1, z)
-        this.root.add(light)
-        this.streetLights.push(light)
       }
     }
 
     this.addApocalypse(roadLen, halfLen)
 
     this.spawn.x = 0
-    // further into the street so the pack has room behind
     this.spawn.z = halfLen - 16
     this.spawn.yaw = Math.PI
 
-    // 15 zombies spawn behind the player (higher Z; player faces -Z)
+    // 15 zombies spread along the whole street (not too close to player start)
+    const streetMinZ = -halfLen + 8
+    const streetMaxZ = halfLen - 6
     for (let i = 0; i < 15; i += 1) {
-      const row = Math.floor(i / 3)
-      const col = (i % 3) - 1
-      const x = col * 2.2 + (Math.random() - 0.5) * 0.6
-      const z = this.spawn.z + 6 + row * 2.2 + (Math.random() - 0.5) * 0.4
-      this.zombieSpawns.push({ x, z })
+      const t = (i + 0.5) / 15
+      let z = streetMinZ + t * (streetMaxZ - streetMinZ)
+      z += (Math.random() - 0.5) * 3.5
+      // keep a clear gap around the player spawn for the head start
+      if (Math.abs(z - this.spawn.z) < 8) {
+        z = this.spawn.z < 0 ? z - 10 : z + 10
+      }
+      z = Math.min(streetMaxZ, Math.max(streetMinZ, z))
+      const x = ((i % 5) - 2) * 2.4 + (Math.random() - 0.5) * 1.4
+      this.zombieSpawns.push({
+        x: Math.max(-5.8, Math.min(5.8, x)),
+        z,
+      })
     }
   }
 
