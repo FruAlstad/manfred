@@ -121,7 +121,6 @@ export class Arena {
     centerLight.position.set(0, 10, 0)
     this.root.add(centerLight)
 
-    // bright fill over the boss half of the arena
     const bossLight = new PointLight(0xfff8ee, 5, 35, 1.5)
     bossLight.position.set(0, 9, -8)
     this.root.add(bossLight)

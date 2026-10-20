@@ -12,11 +12,11 @@ import {
 import { Player } from './player'
 import type { Box2 } from './street'
 
-const WALK = 2.4
-const HUNT = 4.2
-const CATCH = 1.2
+const WALK = 2.8
+const HUNT = 5.8
+const CATCH = 1.35
 const RADIUS = 0.38
-const SEE = 42
+const SEE = 55
 
 export class Zombie {
   readonly group = new Group()

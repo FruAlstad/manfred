@@ -13,7 +13,6 @@ import { Entity } from './entity'
 import { Maze } from './maze'
 import { Player } from './player'
 import { Street } from './street'
-import { Trap } from './trap'
 import { World } from './world'
 import { Zombie } from './zombie'
 
@@ -28,7 +27,6 @@ type Mode =
 
 const MONSTER_COUNT = 10
 const ZOMBIE_COUNT = 15
-const TRAP_COUNT = 5
 
 export class Game {
   private renderer: WebGLRenderer
@@ -40,7 +38,6 @@ export class Game {
   private player: Player
   private entities: Entity[] = []
   private zombies: Zombie[] = []
-  private traps: Trap[] = []
   private axes: Axe[] = []
   private heldAxe: Axe | null = null
   private bow: Bow | null = null
@@ -65,8 +62,11 @@ export class Game {
   private bossHpBar: HTMLElement
   private portalUnlocked = false
   private streetCleared = false
+  private streetPortalUnlocked = false
   private streetGrace = 0
   private bossCleared = false
+  private dreadT = 0
+  private nextFalseScare = 8
   private readonly _aim = new Vector3()
   private readonly _arrowOrigin = new Vector3()
   private activeScene: World['scene'] | Street['scene'] | Arena['scene']
@@ -113,13 +113,6 @@ export class Game {
       const axe = new Axe(this.maze, cell)
       this.axes.push(axe)
       this.world.scene.add(axe.group)
-    }
-
-    const trapCells = this.maze.spawnCells(TRAP_COUNT, 6)
-    for (const cell of trapCells.slice(0, TRAP_COUNT)) {
-      const trap = new Trap(this.maze, cell)
-      this.traps.push(trap)
-      this.world.scene.add(trap.group)
     }
 
     this.world.scene.add(this.camera)
@@ -315,7 +308,7 @@ export class Game {
       this.hint.textContent =
         this.mode === 'street'
           ? left === 0
-            ? 'street cleared. the boss awaits.'
+            ? 'street cleared. find the portal in a house.'
             : `zombie down. ${left} left.`
           : 'monster slain.'
       this.hint.hidden = false
@@ -398,6 +391,7 @@ export class Game {
     this.mode = 'street'
     this.portalUnlocked = false
     this.streetCleared = false
+    this.streetPortalUnlocked = false
     this.streetGrace = 5
     this.pickupPrompt.hidden = true
 
@@ -500,6 +494,7 @@ export class Game {
 
   private triggerJumpscare() {
     this.mode = 'jumpscare'
+    this.setDread(true)
     document.exitPointerLock()
     this.crosshair.hidden = true
     this.pickupPrompt.hidden = true
@@ -558,37 +553,14 @@ export class Game {
       let caught = false
       for (const entity of this.entities) {
         if (entity.dead) continue
-        if (entity.update(dt, this.player, this.traps)) caught = true
+        if (entity.update(dt, this.player)) caught = true
         if (entity.hunting) anyHunting = true
-      }
-
-      let trapped = false
-      let monsterTrapped = false
-      for (const trap of this.traps) {
-        trap.update(dt)
-        if (trap.check(this.player.position.x, this.player.position.z)) {
-          trapped = true
-          continue
-        }
-        for (const entity of this.entities) {
-          if (entity.dead) continue
-          if (trap.check(entity.position.x, entity.position.z)) {
-            entity.kill()
-            monsterTrapped = true
-            break
-          }
-        }
-      }
-      if (monsterTrapped) {
-        this.hint.textContent = 'a monster hit a trap.'
-        this.hint.hidden = false
-        setTimeout(() => {
-          if (this.mode === 'playing') this.hint.hidden = true
-        }, 1800)
       }
 
       this.world.update(now / 1000)
       this.audio.setHunting(anyHunting)
+      this.setDread(anyHunting)
+      this.tickFalseScare(dt, anyHunting)
       this.audio.footstep(this.player.speed())
       this.staminaBar.style.transform = `scaleX(${this.player.stamina})`
 
@@ -599,7 +571,7 @@ export class Game {
       )
       this.updatePortalHint(toPortal)
       if (toPortal < 1.35 && this.allMonstersDead()) this.enterStreet()
-      else if (caught || trapped) this.triggerJumpscare()
+      else if (caught) this.triggerJumpscare()
     } else if (this.mode === 'street' && this.street) {
       this.player.update(dt, this.input(), null, this.street.solids)
       this.tryAttack(dt)
@@ -633,11 +605,37 @@ export class Game {
 
       this.street.update(now / 1000)
       this.audio.setHunting(anyHunting)
+      this.setDread(anyHunting)
+      this.tickFalseScare(dt, anyHunting)
       this.audio.footstep(this.player.speed())
       this.staminaBar.style.transform = `scaleX(${this.player.stamina})`
 
+      const allZombiesDead = this.zombies.every((z) => z.dead)
+      if (allZombiesDead && !this.streetPortalUnlocked) {
+        this.streetPortalUnlocked = true
+        this.street.setPortalOpen(true)
+        this.hint.textContent = 'all dead. find the portal in a house.'
+        this.hint.hidden = false
+      }
+
+      const toStreetPortal = Math.hypot(
+        this.player.position.x - this.street.portal.x,
+        this.player.position.z - this.street.portal.z,
+      )
+      if (toStreetPortal < 3 && !allZombiesDead) {
+        this.hint.textContent = 'the portal is sealed. kill all zombies.'
+        this.hint.hidden = false
+      } else if (toStreetPortal < 3 && this.streetPortalUnlocked) {
+        this.hint.textContent = 'step through the portal.'
+        this.hint.hidden = false
+      }
+
       if (caught) this.triggerJumpscare()
-      else if (!this.streetCleared && this.zombies.every((z) => z.dead)) {
+      else if (
+        !this.streetCleared &&
+        this.streetPortalUnlocked &&
+        toStreetPortal < 1.35
+      ) {
         this.streetCleared = true
         this.enterBoss()
       }
@@ -652,12 +650,14 @@ export class Game {
 
       if (!this.boss.dead) {
         this.audio.setHunting(true)
+        this.setDread(true)
         if (this.boss.update(dt, this.player, this.arena.solids)) {
           this.triggerJumpscare()
         }
       } else if (!this.bossCleared) {
         this.bossCleared = true
         this.audio.setHunting(false)
+        this.setDread(false)
         this.end('escaped')
       }
     } else if (this.mode === 'jumpscare') {
@@ -670,8 +670,43 @@ export class Game {
     if (this.mode !== 'jumpscare') {
       this.camera.position.copy(this.player.position)
       this.camera.quaternion.setFromEuler(this.player.euler())
+      // dread camera: FOV squeeze + micro shake when hunted
+      const hunted = document.body.classList.contains('dread')
+      const targetFov = hunted ? 62 : 72
+      this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 4)
+      this.camera.updateProjectionMatrix()
+      if (hunted) {
+        this.dreadT += dt
+        this.camera.position.x += Math.sin(this.dreadT * 27) * 0.018
+        this.camera.position.y += Math.cos(this.dreadT * 31) * 0.012
+      }
     }
     this.renderer.render(this.activeScene, this.camera)
     requestAnimationFrame(this.loop)
+  }
+
+  private setDread(active: boolean) {
+    document.body.classList.toggle('dread', active)
+  }
+
+  private tickFalseScare(dt: number, hunting: boolean) {
+    if (!hunting) return
+    this.nextFalseScare -= dt
+    if (this.nextFalseScare > 0) return
+    this.nextFalseScare = 9 + Math.random() * 14
+    const lines = [
+      'it is behind you.',
+      'do not turn around.',
+      'something just breathed.',
+      'run.',
+      'it knows where you are.',
+    ]
+    this.hint.textContent = lines[Math.floor(Math.random() * lines.length)]
+    this.hint.hidden = false
+    setTimeout(() => {
+      if (this.mode === 'playing' || this.mode === 'street') {
+        this.hint.hidden = true
+      }
+    }, 1600)
   }
 }

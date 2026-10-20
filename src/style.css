@@ -28,8 +28,25 @@ canvas#scene {
   pointer-events: none;
   position: fixed;
   inset: 0;
-  background: radial-gradient(ellipse at center, transparent 40%, rgba(20, 16, 4, 0.55) 100%);
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(20, 16, 4, 0.4) 100%);
   z-index: 2;
+  transition: background 0.35s ease;
+}
+
+body.dread #vignette {
+  background:
+    radial-gradient(ellipse at center, transparent 30%, rgba(80, 0, 0, 0.35) 75%, rgba(40, 0, 0, 0.55) 100%);
+  animation: dread-pulse 0.7s ease-in-out infinite;
+}
+
+@keyframes dread-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.82;
+  }
 }
 
 #grain {
@@ -43,6 +60,23 @@ canvas#scene {
     rgba(255, 255, 230, 0.35) 0 1px,
     transparent 1px 3px
   );
+}
+
+body.dread #grain {
+  opacity: 0.14;
+  animation: grain-jitter 0.12s steps(2) infinite;
+}
+
+@keyframes grain-jitter {
+  0% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-1px, 1px);
+  }
+  100% {
+    transform: translate(1px, -1px);
+  }
 }
 
 #crosshair {

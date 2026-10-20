@@ -1,6 +1,9 @@
 export class GameAudio {
   private context: AudioContext | null = null
   private master: GainNode | null = null
+  private hunting = false
+  private nextHeartbeat = 0
+  private nextWhisper = 0
 
   start() {
     if (this.context) {
@@ -21,12 +24,68 @@ export class GameAudio {
     }
   }
 
-  setHunting(_active: boolean) {
-    // ambient hunting hum removed — it caused lag
+  setHunting(active: boolean) {
+    this.hunting = active
+    if (!active || !this.context) return
+    const now = this.context.currentTime
+    if (now >= this.nextHeartbeat) {
+      this.dreadHeartbeat(now)
+      this.nextHeartbeat = now + (active ? 0.55 : 1.4)
+    }
+    if (now >= this.nextWhisper) {
+      this.dreadWhisper(now)
+      this.nextWhisper = now + 4 + Math.random() * 7
+    }
   }
 
   footstep(_speed: number) {
     // footsteps removed — they caused lag
+  }
+
+  private dreadHeartbeat(at: number) {
+    if (!this.context || !this.master) return
+    const thump = (offset: number, pitch: number, vol: number) => {
+      if (!this.context || !this.master) return
+      const osc = this.context.createOscillator()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(pitch, at + offset)
+      osc.frequency.exponentialRampToValueAtTime(28, at + offset + 0.18)
+      const gain = this.context.createGain()
+      gain.gain.setValueAtTime(0.0001, at + offset)
+      gain.gain.exponentialRampToValueAtTime(vol, at + offset + 0.01)
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + offset + 0.22)
+      osc.connect(gain)
+      gain.connect(this.master!)
+      osc.start(at + offset)
+      osc.stop(at + offset + 0.25)
+    }
+    thump(0, 70, 0.55)
+    thump(0.16, 55, 0.4)
+  }
+
+  private dreadWhisper(at: number) {
+    if (!this.context || !this.master) return
+    const noise = this.context.createBufferSource()
+    const len = Math.floor(this.context.sampleRate * 0.7)
+    const buffer = this.context.createBuffer(1, len, this.context.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < data.length; i += 1) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 0.7)
+    }
+    noise.buffer = buffer
+    const filter = this.context.createBiquadFilter()
+    filter.type = 'bandpass'
+    filter.frequency.value = 900 + Math.random() * 800
+    filter.Q.value = 4
+    const gain = this.context.createGain()
+    gain.gain.setValueAtTime(0.0001, at)
+    gain.gain.exponentialRampToValueAtTime(0.22, at + 0.08)
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.65)
+    noise.connect(filter)
+    filter.connect(gain)
+    gain.connect(this.master)
+    noise.start(at)
+    noise.stop(at + 0.7)
   }
 
   swing() {

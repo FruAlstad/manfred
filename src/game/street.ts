@@ -2,6 +2,7 @@ import {
   AmbientLight,
   BoxGeometry,
   Color,
+  CylinderGeometry,
   DirectionalLight,
   FogExp2,
   Group,
@@ -11,6 +12,7 @@ import {
   PlaneGeometry,
   PointLight,
   Scene,
+  TorusGeometry,
 } from 'three'
 
 export type Box2 = { minX: number; maxX: number; minZ: number; maxZ: number }
@@ -35,7 +37,14 @@ export class Street {
   readonly hideZones: Box2[] = []
   readonly spawn = { x: 0, z: 0, yaw: 0 }
   readonly zombieSpawns: Array<{ x: number; z: number }> = []
+  /** Portal inside one of the houses — opens after all zombies die. */
+  readonly portal = { x: 0, z: 0, y: 1.35 }
   private readonly root = new Group()
+  private readonly houseCenters: Array<{ x: number; z: number }> = []
+  private portalRing!: Mesh
+  private portalCore!: Mesh
+  private portalLight!: PointLight
+  private portalOpen = false
 
   constructor() {
     this.scene.background = new Color('#87b8e0')
@@ -59,8 +68,26 @@ export class Street {
     )
   }
 
-  update(_time: number) {
-    // daytime — no lamp flicker
+  setPortalOpen(open: boolean) {
+    this.portalOpen = open
+    const ringMat = this.portalRing.material as MeshStandardMaterial
+    const coreMat = this.portalCore.material as MeshStandardMaterial
+    if (open) {
+      ringMat.emissive.set('#3dffc8')
+      ringMat.emissiveIntensity = 2.2
+      coreMat.emissive.set('#9a55ff')
+      coreMat.emissiveIntensity = 2
+      coreMat.color.set('#5533aa')
+      this.portalLight.intensity = 4
+      this.portalLight.color.set('#66eeff')
+    }
+  }
+
+  update(time: number) {
+    if (!this.portalOpen) return
+    this.portalRing.rotation.z += 0.035
+    this.portalCore.rotation.z -= 0.02
+    this.portalLight.intensity = 3.8 + Math.sin(time * 5) * 0.9
   }
 
   private build() {
@@ -281,6 +308,8 @@ export class Street {
         ceiling.position.set(x, HOUSE_HEIGHT - 0.05, z)
         this.root.add(ceiling)
 
+        this.houseCenters.push({ x, z })
+
         // hide zone = walkable interior
         this.hideZones.push({
           minX: Math.min(x - halfD, x + halfD) + INTERIOR_PAD,
@@ -335,6 +364,7 @@ export class Street {
     }
 
     this.addApocalypse(roadLen, halfLen)
+    this.placeHousePortal()
 
     this.spawn.x = 0
     this.spawn.z = halfLen - 16
@@ -358,6 +388,50 @@ export class Street {
         z,
       })
     }
+  }
+
+  private placeHousePortal() {
+    const house =
+      this.houseCenters[
+        Math.floor(Math.random() * this.houseCenters.length)
+      ] ?? { x: 0, z: 0 }
+    this.portal.x = house.x
+    this.portal.z = house.z
+
+    const portal = new Group()
+    portal.position.set(house.x, this.portal.y, house.z)
+
+    const ringMat = new MeshStandardMaterial({
+      color: '#1a1520',
+      emissive: '#251830',
+      emissiveIntensity: 0.35,
+      roughness: 0.35,
+      metalness: 0.55,
+    })
+    const coreMat = new MeshStandardMaterial({
+      color: '#120f18',
+      emissive: '#1a1228',
+      emissiveIntensity: 0.25,
+      roughness: 0.2,
+      transparent: true,
+      opacity: 0.92,
+    })
+
+    this.portalRing = new Mesh(new TorusGeometry(0.85, 0.08, 14, 36), ringMat)
+    this.portalRing.rotation.x = Math.PI / 2
+    portal.add(this.portalRing)
+
+    this.portalCore = new Mesh(
+      new CylinderGeometry(0.58, 0.58, 0.06, 28),
+      coreMat,
+    )
+    this.portalCore.rotation.x = Math.PI / 2
+    portal.add(this.portalCore)
+
+    this.portalLight = new PointLight(0x332244, 0.35, 8, 2)
+    portal.add(this.portalLight)
+
+    this.root.add(portal)
   }
 
   private addWall(

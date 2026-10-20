@@ -13,8 +13,8 @@ import { Player } from './player'
 import type { Box2 } from './street'
 
 export const BOSS_MAX_HP = 2000
-const SPEED = 5.2
-const CATCH = 1.8
+const SPEED = 6.8
+const CATCH = 2.0
 const RADIUS = 0.7
 
 export class Boss {

@@ -39,19 +39,19 @@ export class World {
   }
 
   update(time: number) {
-    // flicker only a couple lights, infrequently
+    // bright rooms, occasional unsettling flicker
     for (const fixture of this.lights) {
       if (time < fixture.next) continue
       const roll = Math.random()
       const material = fixture.mesh.material as MeshStandardMaterial
-      if (roll < 0.12) {
+      if (roll < 0.14) {
         fixture.light.intensity = 0
         material.emissiveIntensity = 0.05
-        fixture.next = time + 0.12 + Math.random() * 0.2
+        fixture.next = time + 0.1 + Math.random() * 0.25
       } else {
         fixture.light.intensity = 2.2 + Math.random() * 0.3
         material.emissiveIntensity = 1.5
-        fixture.next = time + 1.2 + Math.random() * 3
+        fixture.next = time + 0.9 + Math.random() * 2.5
       }
     }
     if (this.portalOpen) {
